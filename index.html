@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COPY/BOT · Polymarket</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --bg:#060A09; --panel:#0A110F; --panel2:#0D1815; --line:#15251F; --ink:#D5E5DD; --muted:#667D73;
+    --green:#3CE88A; --green-dim:#1C7A4A; --red:#FF5C6C; --amber:#F2AE4D;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace; --serif:"Instrument Serif",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:12.5px/1.5 var(--mono)}
+  a{color:var(--green);text-decoration:none} a:hover{text-decoration:underline}
+  .serif{font-family:var(--serif);font-style:italic}
+  .mut{color:var(--muted)} .g{color:var(--green)} .r{color:var(--red)} .a{color:var(--amber)}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700}
+  .ring{width:18px;height:18px;border:2px solid var(--green);border-radius:50%}
+  .badges{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .badge{border:1px solid var(--line);padding:1px 8px;border-radius:2px;font-size:11px}
+  .badge.live{border-color:var(--amber);color:var(--amber)} .badge.dry{border-color:var(--green-dim);color:var(--green)}
+  .badge.bad{border-color:var(--red);color:var(--red)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)} .dot.err{background:var(--red)}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px;padding:12px 18px}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:12px}
+  .card h2{margin:0 0 10px;font-size:11px;font-weight:500;color:var(--muted);letter-spacing:.08em}
+  .card h2 .tag{float:right;color:var(--green);border:1px solid var(--green-dim);padding:0 6px;border-radius:2px;font-size:10px}
+  .big{font-size:38px;font-weight:700;letter-spacing:-.02em;line-height:1}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+  .stats div{background:var(--panel2);border:1px solid var(--line);padding:8px 10px;border-radius:3px}
+  .stats span{display:block;color:var(--muted);font-size:10.5px} .stats b{font-size:16px;font-weight:500}
+  @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .chart{position:relative;height:220px;border-top:1px solid var(--line);margin-top:10px}
+  .chart svg{width:100%;height:100%;display:block}
+  .chart .lab{position:absolute;right:6px;font-size:10px;color:var(--muted)}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:400;font-size:11px;border-top:0}
+  th:first-child,td:first-child{text-align:left}
+  label{display:block;color:var(--muted);margin:9px 0 3px;font-size:11px}
+  input[type=text],input[type=email],input[type=password]{width:100%;background:#07100D;border:1px solid var(--line);color:var(--ink);border-radius:3px;padding:6px 8px;font:inherit}
+  input:focus-visible,button:focus-visible{outline:1px solid var(--green);outline-offset:1px}
+  button{font:inherit;cursor:pointer;background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:3px;padding:5px 11px}
+  button:hover{border-color:var(--green-dim);color:var(--green)}
+  button.pri{background:var(--green);border-color:var(--green);color:#03150C;font-weight:700}
+  button.warn{border-color:var(--amber);color:var(--amber)}
+  button.sm{padding:1px 8px;font-size:11px}
+  .row{display:flex;gap:8px} .row>*{flex:1;min-width:0}
+  .tg{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+  .tg:first-child{border-top:0} .tg b{display:block;font-weight:500} .tg span{color:var(--muted);font-size:11px;word-break:break-all}
+  .tg.off{opacity:.5}
+  .log{max-height:640px;overflow-y:auto}
+  .ev{border-left:2px solid var(--muted);padding:3px 0 3px 9px;margin-bottom:9px}
+  .ev.buy{border-color:var(--green)} .ev.sell,.ev.stop_loss{border-color:var(--red)} .ev.skip{border-color:var(--line)}
+  .ev.error,.ev.halt{border-color:var(--amber)}
+  .ev .h{color:var(--muted);font-size:11px}
+  .empty{color:var(--muted);padding:6px 0}
+  .login{max-width:360px;margin:12vh auto;padding:0 18px}
+  pre{background:#07100D;border:1px solid var(--line);padding:8px;border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:11px}
+  .chk{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:0}
+  .chk input{accent-color:var(--green)}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="login" hidden>
+  <div class="brand" style="margin-bottom:6px"><span class="ring"></span>COPY/BOT</div>
+  <div class="serif" style="font-size:24px;margin-bottom:12px" id="loginTitle">Sign in to your bot</div>
+  <label for="email">Email</label><input type="email" id="email" autocomplete="username">
+  <label for="pw">Password</label><input type="password" id="pw" autocomplete="current-password">
+  <div style="margin-top:12px"><button class="pri" id="loginBtn" style="width:100%">Sign in</button></div>
+  <div style="margin-top:10px;font-size:11px" class="mut"><span id="switchTxt">No account yet?</span> <a href="#" id="switchMode">Create one</a></div>
+  <div id="loginMsg" class="mut" style="margin-top:10px"></div>
+</div>
+
+<div id="appView" hidden>
+  <header class="top">
+    <div class="brand"><span class="ring"></span>COPY/BOT <span class="mut">· polymarket</span></div>
+    <div class="badges">
+      <span id="alive" class="mut"><span class="dot"></span>waiting for bot…</span>
+      <span id="modeBadge" class="badge">–</span>
+      <span id="haltBadge" class="badge bad" hidden>HALTED TODAY</span>
+      <button id="pauseBtn" class="warn">Pause buys</button>
+      <button id="logoutBtn" class="sm">Sign out</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
+          <div><div class="serif" style="font-size:20px">Account equity</div><div class="mut" id="eqSub">cash + open positions</div></div>
+          <div style="text-align:right"><div class="big" id="eq">–</div><div id="dayPnl" class="mut">–</div></div>
+        </div>
+        <div class="chart" id="chart"></div>
+        <div class="stats">
+          <div><span>cash (pUSD)</span><b id="cash">–</b></div>
+          <div><span>spent today</span><b id="spent">–</b></div>
+          <div><span>open positions</span><b id="openN">–</b></div>
+          <div><span>copies today</span><b id="copiesToday">–</b></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>POSITIONS<span class="tag" id="posTag">0</span></h2>
+        <div class="scroll" id="positions"></div>
+      </section>
+
+      <section class="card">
+        <h2>WALLETS BEING COPIED<span class="tag" id="tgTag">0</span></h2>
+        <div id="targets"></div>
+        <div class="row" style="margin-top:8px;align-items:end">
+          <div style="flex:2"><label for="tAddr">Wallet address</label><input type="text" id="tAddr" placeholder="0x..."></div>
+          <div><label for="tLbl">Nickname</label><input type="text" id="tLbl" placeholder="optional"></div>
+          <div style="flex:0 0 auto"><button class="pri" id="tAdd">Add</button></div>
+        </div>
+        <div class="mut" style="margin-top:6px;font-size:11px">The bot picks up changes on its next check. A new or re-enabled wallet is copied from that moment on, never its old trades.</div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <h2>ACTIVITY <label class="chk" style="float:right;margin:0"><input type="checkbox" id="showSkips"> show skips</label></h2>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+// Public, safe to ship: the publishable key only works through the RLS policies (admins only).
+const SUPABASE_URL = 'https://zzcmlwfskqhxwlgyzsxu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_46ytB3zjGzhwq6KN0_27MQ_9cdDL9gV';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const usd = n => n == null || isNaN(n) ? '–' : (n < 0 ? '-$' : '$') + Math.abs(+n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sgn = n => (n >= 0 ? '+' : '') + usd(n);
+const cents = p => p == null ? '–' : (p * 100).toFixed(1) + '¢';
+const short = a => a.slice(0, 6) + '…' + a.slice(-4);
+const ago = t => { const s = (Date.now() - new Date(t)) / 1000; return s < 60 ? Math.round(s) + 's ago' : s < 3600 ? Math.round(s / 60) + 'm ago' : Math.round(s / 3600) + 'h ago'; };
+
+let status = null, events = [], positions = [], targets = [], equityRows = [], control = { paused: false }, channel = null;
+
+/* ---------- auth ---------- */
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  session ? startApp() : showLogin();
+}
+function showLogin(msg) { $('#appView').hidden = true; $('#loginView').hidden = false; if (msg) $('#loginMsg').innerHTML = msg; }
+let signUpMode = false;
+$('#switchMode').onclick = e => {
+  e.preventDefault(); signUpMode = !signUpMode;
+  $('#loginTitle').textContent = signUpMode ? 'Create your account' : 'Sign in to your bot';
+  $('#loginBtn').textContent = signUpMode ? 'Create account' : 'Sign in';
+  $('#switchTxt').textContent = signUpMode ? 'Already have one?' : 'No account yet?';
+  $('#switchMode').textContent = signUpMode ? 'Sign in' : 'Create one';
+  $('#pw').autocomplete = signUpMode ? 'new-password' : 'current-password';
+  $('#loginMsg').textContent = '';
+};
+$('#loginBtn').onclick = async () => {
+  const email = $('#email').value.trim(), password = $('#pw').value;
+  if (!email || !password) return $('#loginMsg').innerHTML = '<span class="r">Enter email and password</span>';
+  if (signUpMode) {
+    if (password.length < 8) return $('#loginMsg').innerHTML = '<span class="r">Use at least 8 characters</span>';
+    $('#loginMsg').textContent = 'Creating account…';
+    const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+    if (error) return $('#loginMsg').innerHTML = `<span class="r">${esc(error.message)}</span>`;
+    if (data.session) return startApp();
+    return $('#loginMsg').innerHTML = '<span class="g">Account created.</span> Check your email and click the confirmation link, then come back and sign in.';
+  }
+  $('#loginMsg').textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) return $('#loginMsg').innerHTML = `<span class="r">${esc(error.message)}</span>`;
+  startApp();
+};
+$('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
+$('#logoutBtn').onclick = async () => { if (channel) sb.removeChannel(channel); await sb.auth.signOut(); showLogin(''); };
+
+async function startApp() {
+  const { data: { user } } = await sb.auth.getUser();
+  const { data: adm } = await sb.from('pm_admins').select('user_id').eq('user_id', user.id).maybeSingle();
+  if (!adm) {
+    await sb.auth.signOut();
+    return showLogin(`<span class="a">Signed in, but this account is not an admin yet.</span> Run this once in Supabase → SQL editor:<pre>insert into pm_admins (user_id)\nselect id from auth.users where email = '${esc(user.email)}';</pre>`);
+  }
+  $('#loginView').hidden = true; $('#appView').hidden = false;
+  await loadAll(); subscribe(); render();
+  setInterval(renderAlive, 5000);
+  setInterval(loadEquity, 5 * 60000);
+}
+
+/* ---------- data ---------- */
+async function loadAll() {
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const [st, ev, ps, tg, ctl] = await Promise.all([
+    sb.from('pm_bot_status').select('*').eq('id', 'main').maybeSingle(),
+    sb.from('pm_events').select('*').order('created_at', { ascending: false }).limit(300),
+    sb.from('pm_positions').select('*').order('value', { ascending: false }),
+    sb.from('pm_targets').select('*').order('added_at'),
+    sb.from('pm_control').select('*').eq('id', 'main').maybeSingle()
+  ]);
+  status = st.data; events = ev.data || []; positions = ps.data || []; targets = tg.data || []; control = ctl.data || control;
+  await loadEquity(since);
+}
+async function loadEquity() {
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const { data } = await sb.from('pm_equity').select('created_at,equity').gte('created_at', since).order('created_at').limit(3000);
+  equityRows = data || []; renderChart();
+}
+function subscribe() {
+  channel = sb.channel('copybot')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pm_events' }, p => { events.unshift(p.new); events = events.slice(0, 300); renderLog(); renderStats(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pm_bot_status' }, p => { status = p.new; renderStats(); renderAlive(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pm_control' }, p => { control = p.new; renderAlive(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pm_positions' }, async () => {
+      const { data } = await sb.from('pm_positions').select('*').order('value', { ascending: false }); positions = data || []; renderPositions();
+    })
+    .subscribe();
+}
+
+/* ---------- actions ---------- */
+$('#pauseBtn').onclick = async () => {
+  const next = !control.paused;
+  if (!next || confirm('Pause new buys? Copied sells and stop-loss keep running.')) {
+    const { error } = await sb.from('pm_control').update({ paused: next, updated_at: new Date().toISOString() }).eq('id', 'main');
+    if (error) return alert(error.message);
+    control.paused = next; renderAlive();
+  }
+};
+$('#tAdd').onclick = async () => {
+  const addr = $('#tAddr').value.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(addr)) return alert('Enter a valid 0x address');
+  const { error } = await sb.from('pm_targets').upsert({ addr, label: $('#tLbl').value.trim(), active: true });
+  if (error) return alert(error.message);
+  $('#tAddr').value = ''; $('#tLbl').value = '';
+  await reloadTargets();
+};
+async function reloadTargets() { const { data } = await sb.from('pm_targets').select('*').order('added_at'); targets = data || []; renderTargets(); }
+document.addEventListener('click', async e => {
+  const tog = e.target.closest('[data-toggle]'), rm = e.target.closest('[data-rm]');
+  if (tog) {
+    const t = targets.find(x => x.addr === tog.dataset.toggle);
+    await sb.from('pm_targets').update({ active: !t.active }).eq('addr', t.addr); await reloadTargets();
+  }
+  if (rm && confirm('Stop copying this wallet and remove it? Open positions stay; copied sells for them stop.')) {
+    await sb.from('pm_targets').delete().eq('addr', rm.dataset.rm); await reloadTargets();
+  }
+});
+$('#showSkips').onchange = renderLog;
+
+/* ---------- render ---------- */
+function render() { renderAlive(); renderStats(); renderChart(); renderPositions(); renderTargets(); renderLog(); }
+
+function renderAlive() {
+  const fresh = status && status.last_poll && Date.now() - new Date(status.last_poll) < 120000;
+  $('#alive').innerHTML = status && status.last_poll
+    ? `<span class="dot ${fresh ? 'on' : 'err'}"></span>${fresh ? 'bot running' : 'bot silent'} · checked ${ago(status.last_poll)}` + (status.last_error ? ` · <span class="r">${esc(status.last_error)}</span>` : '')
+    : '<span class="dot"></span>waiting for bot…';
+  const live = status && status.mode === 'live';
+  $('#modeBadge').textContent = status ? (live ? 'LIVE MONEY' : 'DRY RUN') : '–';
+  $('#modeBadge').className = 'badge ' + (live ? 'live' : 'dry');
+  $('#haltBadge').hidden = !(status && status.halted);
+  $('#pauseBtn').textContent = control.paused ? 'Resume buys' : 'Pause buys';
+  $('#pauseBtn').className = control.paused ? 'pri' : 'warn';
+}
+
+function renderStats() {
+  const s = status || {};
+  $('#eq').textContent = usd(s.equity);
+  const day = s.equity != null && s.day_start_equity ? s.equity - s.day_start_equity : null;
+  $('#dayPnl').textContent = day == null ? 'today: –' : `today ${sgn(day)} (${(day / s.day_start_equity * 100).toFixed(2)}%)`;
+  $('#dayPnl').className = day == null ? 'mut' : day >= 0 ? 'g' : 'r';
+  $('#eq').style.color = day == null ? 'var(--ink)' : day >= 0 ? 'var(--green)' : 'var(--red)';
+  $('#cash').textContent = usd(s.cash);
+  $('#spent').textContent = s.spent_today == null ? '–' : `${usd(s.spent_today)} / ${usd(s.daily_cap)}`;
+  $('#openN').textContent = s.open_positions ?? '–';
+  const midnight = new Date(); midnight.setUTCHours(0, 0, 0, 0);
+  $('#copiesToday').textContent = events.filter(e => (e.kind === 'buy' || e.kind === 'sell') && new Date(e.created_at) >= midnight).length;
+}
+
+function renderChart() {
+  const el = $('#chart'), h = equityRows.filter(r => r.equity != null);
+  if (h.length < 2) { el.innerHTML = '<div class="empty">The curve fills in as the bot runs (one point every 5 minutes).</div>'; return; }
+  const W = 800, H = 220, pad = 8, vals = h.map(r => +r.equity);
+  let min = Math.min(...vals), max = Math.max(...vals); if (max - min < 1) { max += 1; min -= 1; }
+  const x = i => pad + i * (W - 2 * pad) / (h.length - 1), y = v => H - pad - 8 - (v - min) / (max - min) * (H - 2 * pad - 24);
+  const line = 'M' + h.map((r, i) => `${x(i).toFixed(1)},${y(+r.equity).toFixed(1)}`).join(' L');
+  const up = vals[vals.length - 1] >= vals[0], col = up ? '#3CE88A' : '#FF5C6C';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Equity, last 7 days">
+    <defs><linearGradient id="gf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".3"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${line} L${x(h.length - 1)},${H} L${x(0)},${H} Z" fill="url(#gf)"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+  </svg><span class="lab" style="top:6px">${usd(max)}</span><span class="lab" style="bottom:6px">${usd(min)} · 7 days</span>`;
+}
+
+function renderPositions() {
+  $('#posTag').textContent = positions.length;
+  $('#positions').innerHTML = positions.length ? `<table><tr><th>Market</th><th>Shares</th><th>Avg</th><th>Now</th><th>Value</th><th>P/L</th></tr>` +
+    positions.map(p => `<tr><td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}<br><span class="mut">${esc(p.outcome)}</span></td>
+      <td>${(+p.size).toFixed(1)}</td><td>${cents(+p.avg_price)}</td><td>${cents(+p.cur_price)}</td><td>${usd(+p.value)}</td>
+      <td class="${+p.pnl >= 0 ? 'g' : 'r'}">${sgn(+p.pnl)}</td></tr>`).join('') + '</table>'
+    : '<div class="empty">No open positions.</div>';
+}
+
+function renderTargets() {
+  $('#tgTag').textContent = targets.filter(t => t.active).length;
+  $('#targets').innerHTML = targets.length ? targets.map(t => `<div class="tg ${t.active ? '' : 'off'}">
+      <div><b>${esc(t.label || short(t.addr))}</b><span><a href="https://polymarket.com/profile/${esc(t.addr)}" target="_blank" rel="noopener">${esc(t.addr)}</a></span></div>
+      <div style="display:flex;gap:6px;flex:0 0 auto"><button class="sm" data-toggle="${esc(t.addr)}">${t.active ? 'Disable' : 'Enable'}</button><button class="sm" data-rm="${esc(t.addr)}">Remove</button></div>
+    </div>`).join('') : '<div class="empty">No wallets yet. Add one below.</div>';
+}
+
+function renderLog() {
+  const list = events.filter(e => $('#showSkips').checked || e.kind !== 'skip').slice(0, 150);
+  $('#log').innerHTML = list.length ? list.map(e => {
+    const head = [new Date(e.created_at).toLocaleString(), e.target_label, e.side && `${e.side} ${e.outcome || ''}`, e.their_price != null && `@ ${cents(+e.their_price)}`, e.their_usd != null && usd(+e.their_usd)].filter(Boolean).join(' · ');
+    const cls = e.kind === 'skip' ? 'mut' : e.kind === 'buy' ? 'g' : e.kind === 'sell' || e.kind === 'stop_loss' ? 'r' : 'a';
+    return `<div class="ev ${esc(e.kind)}"><div class="h">${esc(head)}${e.dry ? ' · <span class="g">dry</span>' : ''}</div>
+      ${e.title ? `<div>${esc(e.title)}</div>` : ''}<span class="${cls}">${esc(e.kind.replace('_', ' ').toUpperCase())}</span> <span>${esc(e.note || '')}</span></div>`;
+  }).join('') : '<div class="empty">No activity yet.</div>';
+}
+
+boot();
+</script>
+</body>
+</html>
