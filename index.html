@@ -356,11 +356,15 @@ const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
 let scanRows = [];
 async function analyze(r) {
   const addr = r.proxyWallet;
-  const [closed, acts] = await Promise.all([
-    getJSON(`${DATA}/closed-positions?user=${addr}&limit=50`),
-    getJSON(`${DATA}/activity?user=${addr}&type=TRADE&limit=100`)
+  const [closed, acts, open] = await Promise.all([
+    // newest closed results, not the biggest wins
+    getJSON(`${DATA}/closed-positions?user=${addr}&limit=50&sortBy=TIMESTAMP&sortDirection=DESC`),
+    getJSON(`${DATA}/activity?user=${addr}&type=TRADE&limit=100`),
+    // worst open positions: losers people hold to zero instead of selling never show up as "closed"
+    getJSON(`${DATA}/positions?user=${addr}&limit=50&sortBy=CASHPNL&sortDirection=ASC`).catch(() => [])
   ]);
-  const pnls = closed.map(c => +c.realizedPnl || 0);
+  const deadLosers = (Array.isArray(open) ? open : []).filter(p => +p.cashPnl < 0 && (+p.curPrice <= 0.05 || p.redeemable)).map(p => +p.cashPnl);
+  const pnls = [...closed.map(c => +c.realizedPnl || 0), ...deadLosers];
   const wins = pnls.filter(x => x > 0), losses = pnls.filter(x => x < 0);
   const sumW = wins.reduce((a, b) => a + b, 0), sumL = Math.abs(losses.reduce((a, b) => a + b, 0));
   const winRate = pnls.length ? wins.length / pnls.length : 0;
@@ -404,7 +408,7 @@ function renderScan() {
     scanRows.map(r => `<tr>
       <td><a href="https://polymarket.com/profile/${esc(r.addr)}" target="_blank" rel="noopener"><b>${esc(r.name)}</b></a><br><span class="mut">${usd(r.lbPnl)} on leaderboard</span>${r.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('')}</td>
       <td><span class="score ${r.score >= 65 ? 'hi' : r.score >= 40 ? 'mid' : 'lo'}">${r.score}</span></td>
-      <td>${(r.winRate * 100).toFixed(0)}%<br><span class="mut">${r.closed} closed</span></td>
+      <td>${(r.winRate * 100).toFixed(0)}%<br><span class="mut">${r.closed} results</span></td>
       <td>${r.pf.toFixed(2)}</td><td>${r.perDay < 10 ? r.perDay.toFixed(1) : Math.round(r.perDay)}</td>
       <td>${usd(r.avgUsd)}</td><td>${age(r.lastAgeDays)}</td>
       <td>${tracked.has(r.addr) ? '<span class="g">copying</span>' : `<button class="sm pri" data-copy="${esc(r.addr)}" data-name="${esc(r.name)}">Copy</button>`}</td></tr>`).join('') + '</table>' : '';
