@@ -384,6 +384,9 @@ async function analyze(r) {
   let score = clamp((winRate - 0.4) / 0.35) * 35 + clamp((pf - 1) / 2) * 25 + clamp((0.7 - topShare) / 0.5) * 20 +
     clamp(pnls.length / 40) * 10 + (lastAgeDays < 1 ? 10 : lastAgeDays < 3 ? 6 : lastAgeDays < 7 ? 3 : 0);
   if (perDay > 200) score -= 40;
+  if (topShare > 0.5 && pnls.length >= 5) score -= 15;   // profit mostly from one bet
+  if (pnls.length < 15) score -= 10;                     // too little evidence
+  if (pf < 1 && pnls.length) score = Math.min(score, 35); // losing more than winning: never green
   return { addr: addr.toLowerCase(), name: r.userName || short(addr), lbPnl: +r.pnl || 0, winRate, pf, closed: pnls.length, perDay, lastAgeDays, avgUsd, flags, score: Math.round(clamp(score, 0, 100)) };
 }
 async function runScan() {
