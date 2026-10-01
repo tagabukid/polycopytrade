@@ -67,6 +67,10 @@
   pre{background:#07100D;border:1px solid var(--line);padding:8px;border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:11px}
   .chk{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:0}
   .chk input{accent-color:var(--green)}
+  select{width:100%;background:#07100D;border:1px solid var(--line);color:var(--ink);border-radius:3px;padding:6px 8px;font:inherit}
+  .flag{color:var(--amber);font-size:11px;display:block}
+  .score{display:inline-block;min-width:34px;text-align:center;padding:1px 6px;border-radius:2px;font-weight:700}
+  .score.hi{background:var(--green);color:#03150C} .score.mid{background:var(--amber);color:#1a1000} .score.lo{border:1px solid var(--line);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -123,6 +127,20 @@
           <div style="flex:0 0 auto"><button class="pri" id="tAdd">Add</button></div>
         </div>
         <div class="mut" style="margin-top:6px;font-size:11px">The bot picks up changes on its next check. A new or re-enabled wallet is copied from that moment on, never its old trades.</div>
+      </section>
+
+      <section class="card">
+        <h2>FIND TRADERS TO COPY</h2>
+        <div class="mut" style="font-size:11px;margin-bottom:8px">Takes the top of the Polymarket leaderboard and grades each wallet on its recent closed trades: win rate, profit factor, whether profit came from one lucky bet, and whether it trades at a pace you can copy.</div>
+        <div class="row" style="align-items:end">
+          <div><label for="scanPeriod">Leaderboard period</label>
+            <select id="scanPeriod"><option value="WEEK">This week</option><option value="MONTH" selected>This month</option><option value="ALL">All time</option></select></div>
+          <div><label for="scanN">Wallets to scan</label>
+            <select id="scanN"><option>20</option><option selected>30</option><option>50</option></select></div>
+          <div><button id="scanBtn" class="pri" style="width:100%">Scan best wallets</button></div>
+        </div>
+        <div id="scanStatus" class="mut" style="margin:8px 0"></div>
+        <div class="scroll" id="scanOut"></div>
       </section>
     </div>
 
@@ -329,6 +347,77 @@ function renderLog() {
       ${e.title ? `<div>${esc(e.title)}</div>` : ''}<span class="${cls}">${esc(e.kind.replace('_', ' ').toUpperCase())}</span> <span>${esc(e.note || '')}</span></div>`;
   }).join('') : '<div class="empty">No activity yet.</div>';
 }
+
+
+/* ---------- Wallet scanner (public Polymarket data) ---------- */
+const DATA = 'https://data-api.polymarket.com';
+const getJSON = async url => { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
+const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
+let scanRows = [];
+async function analyze(r) {
+  const addr = r.proxyWallet;
+  const [closed, acts] = await Promise.all([
+    getJSON(`${DATA}/closed-positions?user=${addr}&limit=50`),
+    getJSON(`${DATA}/activity?user=${addr}&type=TRADE&limit=100`)
+  ]);
+  const pnls = closed.map(c => +c.realizedPnl || 0);
+  const wins = pnls.filter(x => x > 0), losses = pnls.filter(x => x < 0);
+  const sumW = wins.reduce((a, b) => a + b, 0), sumL = Math.abs(losses.reduce((a, b) => a + b, 0));
+  const winRate = pnls.length ? wins.length / pnls.length : 0;
+  const pf = sumL ? sumW / sumL : (sumW ? 9.99 : 0);
+  const topShare = sumW ? Math.max(...wins) / sumW : 1;
+  const ts = acts.map(a => a.timestamp).filter(Boolean), now = Date.now() / 1000;
+  const newest = ts.length ? Math.max(...ts) : 0, oldest = ts.length ? Math.min(...ts) : 0;
+  const perDay = ts.length ? ts.length / Math.max((newest - oldest) / 86400, 0.04) : 0;
+  const lastAgeDays = newest ? (now - newest) / 86400 : 999;
+  const avgUsd = acts.length ? acts.reduce((a, t) => a + (+t.usdcSize || t.size * t.price || 0), 0) / acts.length : 0;
+  const flags = [];
+  if (perDay > 200) flags.push('Too fast to copy');
+  if (topShare > 0.5 && pnls.length >= 5) flags.push('One big win');
+  if (lastAgeDays > 3) flags.push('Inactive');
+  if (pnls.length < 15) flags.push('Few results');
+  if (pf < 1 && pnls.length) flags.push('Losing lately');
+  let score = clamp((winRate - 0.4) / 0.35) * 35 + clamp((pf - 1) / 2) * 25 + clamp((0.7 - topShare) / 0.5) * 20 +
+    clamp(pnls.length / 40) * 10 + (lastAgeDays < 1 ? 10 : lastAgeDays < 3 ? 6 : lastAgeDays < 7 ? 3 : 0);
+  if (perDay > 200) score -= 40;
+  return { addr: addr.toLowerCase(), name: r.userName || short(addr), lbPnl: +r.pnl || 0, winRate, pf, closed: pnls.length, perDay, lastAgeDays, avgUsd, flags, score: Math.round(clamp(score, 0, 100)) };
+}
+async function runScan() {
+  const per = $('#scanPeriod').value, n = +$('#scanN').value, status = $('#scanStatus');
+  $('#scanBtn').disabled = true; $('#scanOut').innerHTML = ''; status.textContent = 'Loading leaderboard…';
+  try {
+    const lb = await getJSON(`${DATA}/v1/leaderboard?timePeriod=${per}&orderBy=PNL&limit=${n}`);
+    if (!Array.isArray(lb) || !lb.length) throw new Error('empty leaderboard');
+    const queue = [...lb]; scanRows = []; let done = 0;
+    const worker = async () => { while (queue.length) { const r = queue.shift(); try { scanRows.push(await analyze(r)); } catch (e) {} status.textContent = `Analyzing wallets… ${++done}/${lb.length}`; } };
+    await Promise.all([worker(), worker(), worker()]);
+    scanRows.sort((a, b) => b.score - a.score);
+    status.textContent = `Scanned ${scanRows.length} of ${lb.length} wallets. Best scores first. Score 65+ is a good starting point.`;
+    renderScan();
+  } catch (e) { status.innerHTML = `<span class="r">Scan failed (${esc(e.message)}). Try again in a minute.</span>`; }
+  $('#scanBtn').disabled = false;
+}
+function renderScan() {
+  const age = d => d < 1 ? Math.max(1, Math.round(d * 24)) + 'h ago' : d < 999 ? Math.round(d) + 'd ago' : 'never';
+  const tracked = new Set(targets.map(t => t.addr));
+  $('#scanOut').innerHTML = scanRows.length ? `<table><tr><th>Trader</th><th>Score</th><th>Win rate</th><th>Profit factor</th><th>Trades/day</th><th>Avg trade</th><th>Last trade</th><th></th></tr>` +
+    scanRows.map(r => `<tr>
+      <td><a href="https://polymarket.com/profile/${esc(r.addr)}" target="_blank" rel="noopener"><b>${esc(r.name)}</b></a><br><span class="mut">${usd(r.lbPnl)} on leaderboard</span>${r.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('')}</td>
+      <td><span class="score ${r.score >= 65 ? 'hi' : r.score >= 40 ? 'mid' : 'lo'}">${r.score}</span></td>
+      <td>${(r.winRate * 100).toFixed(0)}%<br><span class="mut">${r.closed} closed</span></td>
+      <td>${r.pf.toFixed(2)}</td><td>${r.perDay < 10 ? r.perDay.toFixed(1) : Math.round(r.perDay)}</td>
+      <td>${usd(r.avgUsd)}</td><td>${age(r.lastAgeDays)}</td>
+      <td>${tracked.has(r.addr) ? '<span class="g">copying</span>' : `<button class="sm pri" data-copy="${esc(r.addr)}" data-name="${esc(r.name)}">Copy</button>`}</td></tr>`).join('') + '</table>' : '';
+}
+$('#scanBtn').onclick = runScan;
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  if (!confirm(`Start copying ${b.dataset.name}? The bot copies their trades from now on (dry run until you switch it to live).`)) return;
+  b.disabled = true;
+  const { error } = await sb.from('pm_targets').upsert({ addr: b.dataset.copy, label: b.dataset.name.slice(0, 40), active: true });
+  if (error) { b.disabled = false; return alert(error.message); }
+  await reloadTargets(); renderScan();
+});
 
 boot();
 </script>
